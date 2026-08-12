@@ -266,3 +266,23 @@ export async function downloadReport(runName?: string | null): Promise<DownloadR
   }
   return { ok: false, error: String(data.error ?? "unavailable") };
 }
+
+export interface FindScanRunResult {
+  ok: boolean;
+  found?: boolean;
+  run_name?: string;
+  error?: string;
+}
+
+/** POST /api/scans/find-run - Find the run directory for a launched scan */
+export async function findScanRun(scanId: string): Promise<FindScanRunResult> {
+  const { ok, data } = await postJson("/api/scans/find-run", { scan_id: scanId });
+  if (ok) {
+    return {
+      ok: true,
+      found: data.found === true,
+      run_name: data.run_name ? String(data.run_name) : undefined,
+    };
+  }
+  return { ok: false, error: String(data.error ?? "unavailable") };
+}

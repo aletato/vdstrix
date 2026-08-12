@@ -337,7 +337,10 @@ export default function App() {
                 <Rocket className="w-5 h-5 text-[#888]" aria-hidden="true" />
                 <h1 className="text-2xl font-semibold text-white">Scan Manager</h1>
               </div>
-              <ScanManager />
+              <ScanManager onScanSelected={(runName) => {
+                selectRun(runName);
+                userSetView("agents");
+              }} />
             </div>
           ) : view === "history" ? (
             <div className="space-y-4">

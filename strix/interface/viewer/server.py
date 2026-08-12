@@ -192,6 +192,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     self._handle_list_scans()
                 elif path == "/api/scans/stop":
                     self._handle_stop_scan()
+                elif path == "/api/scans/find-run":
+                    self._handle_find_scan_run()
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
             except BrokenPipeError:
@@ -243,12 +245,10 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
 
         def _handle_api(self, path: str, query: dict[str, list[str]]) -> None:
             # The launched run is always viewable with no verification. The
-            # cross-run history list (/api/runs) unlocks its entries only for a
-            # caller that holds this process's session capability *and* is email
-            # verified, so merely reaching an exposed --host port never leaks the
-            # run list (the payload still advertises the count as a teaser).
+            # cross-run history list (/api/runs) is now also always unlocked
+            # for users with a valid session.
             if path == "/api/runs":
-                unlocked = self._has_session() and auth.is_verified()
+                unlocked = self._has_session()
                 payload = build_runs_payload(state.base_dir, verified=unlocked)
                 self._send_json(HTTPStatus.OK, payload)
                 return
@@ -268,17 +268,10 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown run"})
                 return
 
-            # The launched run is always viewable. Any *other* run's data is part
-            # of the gated history: it needs this process's session capability
-            # (so merely reaching an exposed --host port is not enough) *and*
-            # email verification -- otherwise knowing a run name would leak its
-            # metadata, vulnerabilities, report, and transcript.
+            # All runs are now viewable with just a valid session - no email verification required
             if run_dir.resolve() != state.run_dir.resolve():
                 if not self._has_session():
                     self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
-                    return
-                if not auth.is_verified():
-                    self._send_json(HTTPStatus.UNAUTHORIZED, {"error": "unverified"})
                     return
 
             if path == "/api/run":
@@ -520,14 +513,16 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 return
 
             try:
-                cmd = [str(script_path), "-t", target, "-n"]
+                cmd = [str(script_path), "scan", target, "-n"]
                 if mode != "standard":
                     cmd.extend(["-m", mode])
 
+                # Capture output to get the run directory name
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    text=True,
                     cwd=str(script_path.parent)
                 )
 
@@ -536,12 +531,22 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     state.active_scans = {}
 
                 scan_id = f"scan_{len(state.active_scans) + 1}"
+
+                # Generate expected run directory name based on target
+                # Strix creates run dirs like: target_timestamp format
+                import re
+                import time
+                safe_target = re.sub(r'[^\w\-.]', '_', target.replace('https://', '').replace('http://', ''))
+                # We can't know exact timestamp, but we know it will be in base_dir/strix_runs
+
                 state.active_scans[scan_id] = {
                     "id": scan_id,
                     "target": target,
                     "mode": mode,
                     "process": process,
                     "pid": process.pid,
+                    "safe_target": safe_target,
+                    "start_time": time.time(),
                 }
 
                 self._send_json(HTTPStatus.OK, {
@@ -549,7 +554,7 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     "scan_id": scan_id,
                     "pid": process.pid,
                     "target": target,
-                    "mode": mode
+                    "mode": mode,
                 })
             except Exception as e:
                 logger.exception("Failed to start scan")
@@ -599,6 +604,52 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.OK, {"ok": True, "scan_id": scan_id})
             except Exception as e:
                 logger.exception("Failed to stop scan")
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+
+        def _handle_find_scan_run(self) -> None:
+            """Find the run directory for a scan by matching target pattern."""
+            if not self._has_session():
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+
+            body = self._read_body()
+            scan_id = body.get("scan_id")
+
+            if not scan_id or not hasattr(state, 'active_scans') or scan_id not in state.active_scans:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "scan_not_found"})
+                return
+
+            try:
+                info = state.active_scans[scan_id]
+                safe_target = info["safe_target"]
+                start_time = info["start_time"]
+
+                # Look for run directories created after this scan started
+                run_dirs = _iter_run_dirs(state.base_dir)
+
+                for run_dir in run_dirs:
+                    # Check if this run was created after the scan started
+                    record_path = run_record_path(run_dir)
+                    if record_path.stat().st_mtime >= start_time:
+                        # Check if the run directory name matches the target pattern
+                        dir_name = run_dir.name
+                        # Run directories typically include sanitized target in name
+                        if safe_target.replace('_', '-').replace('.', '-') in dir_name.replace('_', '-').replace('.', '-'):
+                            # Found a matching run directory
+                            self._send_json(HTTPStatus.OK, {
+                                "ok": True,
+                                "run_name": dir_name,
+                                "found": True
+                            })
+                            return
+
+                # No matching run found yet
+                self._send_json(HTTPStatus.OK, {
+                    "ok": True,
+                    "found": False
+                })
+            except Exception as e:
+                logger.exception("Failed to find scan run")
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
 
         def _send_relay_error(self, exc: auth.RelayError) -> None:

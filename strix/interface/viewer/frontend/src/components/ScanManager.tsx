@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Play, Square, RefreshCw, Loader2 } from "lucide-react";
+import { Play, Square, RefreshCw, Loader2, Eye } from "lucide-react";
+import { findScanRun } from "@/data/serverSource";
 
 interface Scan {
   id: string;
@@ -8,10 +9,12 @@ interface Scan {
   status: "running" | "finished";
   pid: number;
   exit_code?: number | null;
+  run_name?: string;
+  polling?: boolean;
 }
 
 interface ScanManagerProps {
-  onScanSelected?: (scanId: string) => void;
+  onScanSelected?: (runName: string) => void;
 }
 
 export default function ScanManager({ onScanSelected }: ScanManagerProps) {
@@ -30,9 +33,42 @@ export default function ScanManager({ onScanSelected }: ScanManagerProps) {
       const data = await response.json();
       if (data.scans) {
         setScans(data.scans);
+
+        // For each running scan without a run_name, try to find it
+        for (const scan of data.scans) {
+          if (scan.status === "running" && !scan.run_name && !scan.polling) {
+            scan.polling = true;
+            pollForRunDirectory(scan.id);
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to fetch scans:", err);
+    }
+  };
+
+  const pollForRunDirectory = async (scanId: string) => {
+    try {
+      const result = await findScanRun(scanId);
+      if (result.ok && result.found && result.run_name) {
+        // Update the scan with the found run_name
+        setScans(prev => prev.map(scan =>
+          scan.id === scanId ? { ...scan, run_name: result.run_name, polling: false } : scan
+        ));
+      } else {
+        // Keep polling if not found yet
+        setTimeout(() => {
+          setScans(prev => {
+            const scan = prev.find(s => s.id === scanId);
+            if (scan && scan.status === "running" && !scan.run_name) {
+              pollForRunDirectory(scanId);
+            }
+            return prev;
+          });
+        }, 3000); // Poll every 3 seconds
+      }
+    } catch (err) {
+      console.error("Failed to find run directory:", err);
     }
   };
 
@@ -192,18 +228,35 @@ export default function ScanManager({ onScanSelected }: ScanManagerProps) {
                       {scan.exit_code !== undefined && scan.exit_code !== null && (
                         <span className="ml-2">Exit: {scan.exit_code}</span>
                       )}
+                      {scan.run_name && (
+                        <span className="ml-2 text-xs text-gray-600">
+                          Run: {scan.run_name}
+                        </span>
+                      )}
                     </p>
                   </div>
 
-                  {scan.status === "running" && (
-                    <button
-                      onClick={() => stopScan(scan.id)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-md"
-                      title="Stop scan"
-                    >
-                      <Square className="w-4 h-4" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {scan.run_name && onScanSelected && (
+                      <button
+                        onClick={() => onScanSelected(scan.run_name!)}
+                        className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center gap-1.5"
+                        title="View scan"
+                      >
+                        <Eye className="w-4 h-4" />
+                        View
+                      </button>
+                    )}
+                    {scan.status === "running" && (
+                      <button
+                        onClick={() => stopScan(scan.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-md"
+                        title="Stop scan"
+                      >
+                        <Square className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
