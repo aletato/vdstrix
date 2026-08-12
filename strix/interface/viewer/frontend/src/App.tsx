@@ -273,7 +273,7 @@ export default function App() {
           ) : view === "overview" && !activeRun ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <Radar className="w-5 h-5 text-[#888]" aria-hidden="true" />
+                <Rocket className="w-5 h-5 text-[#888]" aria-hidden="true" />
                 <h1 className="text-2xl font-semibold text-white">Active Pentests</h1>
               </div>
               <ScanManager onScanSelected={(runName) => {
@@ -490,21 +490,6 @@ function FindingsList({
         <div className="rounded-xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-8 text-center text-sm text-[#888]">
           {finished ? "No findings in this run." : "No findings yet. The pentest is still running…"}
         </div>
-        {finished && (
-          <div className="rounded-xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5">
-            <p className="text-sm font-medium text-white">Stay ahead of new exposures</p>
-            <p className="mt-0.5 mb-3 text-xs text-[#666]">
-              Attack surface monitoring catches new exposures for your org over time.
-            </p>
-            <ProInlineCta
-              label="Attack surface monitoring"
-              desc="Continuous coverage for your whole org."
-              slug="asm"
-              surface="empty_state"
-              icon={Radar}
-            />
-          </div>
-        )}
       </div>
     );
   }
@@ -558,9 +543,9 @@ function dedupeHeadings(md: string): string {
 
 /** Local download CTA: generates and downloads an encrypted PDF */
 function DownloadReportCta({ activeRun, finished }: { activeRun: string | null; finished: boolean }) {
-  const [downloading, setDownloading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [password, setPassword] = React.useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(null);
 
   const handleDownload = async () => {
     if (!finished) return;
