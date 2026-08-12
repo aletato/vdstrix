@@ -7,6 +7,7 @@ import {
   Mail,
   LogOut,
   ChevronsUpDown,
+  Rocket,
 } from "lucide-react";
 import { LuGitPullRequestArrow } from "react-icons/lu";
 import { VscExtensions } from "react-icons/vsc";
@@ -252,6 +253,12 @@ export default function Sidebar({
               count={runCount > 0 ? runCount : undefined}
               active={view === "history"}
               onClick={onOpenHistory}
+            />
+            <NavItem
+              icon={<Rocket className="h-4 w-4" />}
+              label="Scan Manager"
+              active={view === "scans"}
+              onClick={() => onSelectView("scans")}
             />
             {finished && (
               <NavItem

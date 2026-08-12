@@ -43,8 +43,9 @@ import { RunDetails } from "@/components/RunDetails";
 import { TrustToast } from "@/components/TrustToast";
 import FeedbackView from "@/components/FeedbackView";
 import { ProInlineCta } from "@/components/ProCta";
+import ScanManager from "@/components/ScanManager";
 
-export type View = "overview" | "issues" | "agents" | "history" | "email" | "feedback";
+export type View = "overview" | "issues" | "agents" | "history" | "email" | "feedback" | "scans";
 
 const TRUST_BANNER =
   "Your findings stay on your machine. They're rendered here locally in your browser and never uploaded or stored by Strix.";
@@ -330,6 +331,14 @@ export default function App() {
               defaultEmail={auth?.email ?? null}
               onExit={(dest) => setView(dest)}
             />
+          ) : view === "scans" ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Rocket className="w-5 h-5 text-[#888]" aria-hidden="true" />
+                <h1 className="text-2xl font-semibold text-white">Scan Manager</h1>
+              </div>
+              <ScanManager />
+            </div>
           ) : view === "history" ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2">

@@ -184,6 +184,12 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     self._handle_feedback()
                 elif path == "/api/agents/steer":
                     self._handle_steer()
+                elif path == "/api/scans/start":
+                    self._handle_start_scan()
+                elif path == "/api/scans/list":
+                    self._handle_list_scans()
+                elif path == "/api/scans/stop":
+                    self._handle_stop_scan()
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
             except BrokenPipeError:
@@ -451,6 +457,110 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.OK, {"ok": True})
             else:
                 self._send_json(HTTPStatus.OK, {"ok": False, "error": "not_delivered"})
+
+        def _handle_start_scan(self) -> None:
+            """Start a new Strix scan."""
+            if not self._has_session():
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            body = self._read_body()
+            target = body.get("target", "").strip()
+            mode = body.get("mode", "standard")
+
+            if not target:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "target_required"})
+                return
+
+            # Start scan in background
+            import subprocess
+            from pathlib import Path
+
+            script_path = Path(__file__).parent.parent.parent.parent / "strix-scan.sh"
+            if not script_path.exists():
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "scan_script_not_found"})
+                return
+
+            try:
+                cmd = [str(script_path), "-t", target, "-n"]
+                if mode != "standard":
+                    cmd.extend(["-m", mode])
+
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=str(script_path.parent)
+                )
+
+                # Store process info globally
+                if not hasattr(state, 'active_scans'):
+                    state.active_scans = {}
+
+                scan_id = f"scan_{len(state.active_scans) + 1}"
+                state.active_scans[scan_id] = {
+                    "id": scan_id,
+                    "target": target,
+                    "mode": mode,
+                    "process": process,
+                    "pid": process.pid,
+                }
+
+                self._send_json(HTTPStatus.OK, {
+                    "ok": True,
+                    "scan_id": scan_id,
+                    "pid": process.pid,
+                    "target": target,
+                    "mode": mode
+                })
+            except Exception as e:
+                logger.exception("Failed to start scan")
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+
+        def _handle_list_scans(self) -> None:
+            """List all active scans."""
+            if not self._has_session():
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+
+            if not hasattr(state, 'active_scans'):
+                state.active_scans = {}
+
+            scans = []
+            for scan_id, info in list(state.active_scans.items()):
+                poll_result = info["process"].poll()
+                status = "finished" if poll_result is not None else "running"
+
+                scans.append({
+                    "id": scan_id,
+                    "target": info["target"],
+                    "mode": info["mode"],
+                    "status": status,
+                    "pid": info["pid"],
+                    "exit_code": poll_result
+                })
+
+            self._send_json(HTTPStatus.OK, {"scans": scans})
+
+        def _handle_stop_scan(self) -> None:
+            """Stop a running scan."""
+            if not self._has_session():
+                self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+
+            body = self._read_body()
+            scan_id = body.get("scan_id")
+
+            if not scan_id or not hasattr(state, 'active_scans') or scan_id not in state.active_scans:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "scan_not_found"})
+                return
+
+            try:
+                info = state.active_scans[scan_id]
+                info["process"].terminate()
+                self._send_json(HTTPStatus.OK, {"ok": True, "scan_id": scan_id})
+            except Exception as e:
+                logger.exception("Failed to stop scan")
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
 
         def _send_relay_error(self, exc: auth.RelayError) -> None:
             status_by_code = {
