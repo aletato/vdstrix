@@ -131,7 +131,6 @@ export interface RunListEntry {
 }
 
 export interface RunsPayload {
-  locked: boolean;
   count: number;
   runs: RunListEntry[];
 }
@@ -176,7 +175,6 @@ async function postJson(
 export async function fetchRuns(): Promise<RunsPayload> {
   const obj = (await getJson("/api/runs")) as Partial<RunsPayload>;
   return {
-    locked: obj?.locked ?? true,
     count: typeof obj?.count === "number" ? obj.count : 0,
     runs: Array.isArray(obj?.runs) ? (obj.runs as RunListEntry[]) : [],
   };
