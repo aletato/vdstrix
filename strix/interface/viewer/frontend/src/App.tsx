@@ -183,6 +183,8 @@ export default function App() {
 
   useEffect(() => {
     if (initialViewAppliedRef.current || !run) return;
+    // When a specific run is loaded and it's finished, show its overview
+    // When it's live with agents, show the agents tab
     if (run.finished) {
       initialViewAppliedRef.current = true;
       setView("overview");
@@ -247,8 +249,16 @@ export default function App() {
           // so leaving a specific issue's detail view and clicking "Issues"
           // returns to the full findings list.
           setSelectedId(null);
-          if (v === "history") openHistory();
-          else userSetView(v);
+          // When clicking "Pentest Overview", clear activeRun to show dashboard
+          if (v === "overview") {
+            setActiveRun(null);
+            setRun(null);
+            userSetView(v);
+          } else if (v === "history") {
+            openHistory();
+          } else {
+            userSetView(v);
+          }
         }}
         issuesCount={run?.vulnerabilities.length ?? 0}
         agentCount={agentCount}
@@ -336,6 +346,17 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <Rocket className="w-5 h-5 text-[#888]" aria-hidden="true" />
                 <h1 className="text-2xl font-semibold text-white">Scan Manager</h1>
+              </div>
+              <ScanManager onScanSelected={(runName) => {
+                selectRun(runName);
+                userSetView("agents");
+              }} />
+            </div>
+          ) : view === "overview" && !activeRun ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Radar className="w-5 h-5 text-[#888]" aria-hidden="true" />
+                <h1 className="text-2xl font-semibold text-white">Active Pentests</h1>
               </div>
               <ScanManager onScanSelected={(runName) => {
                 selectRun(runName);
