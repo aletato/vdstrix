@@ -114,6 +114,7 @@ export default function EmailReportView({
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
       } catch (e) {
+        console.error("Download error:", e);
         setError("Failed to download the PDF. Please try again.");
         setStep("disclosure");
         return;
@@ -122,7 +123,8 @@ export default function EmailReportView({
       setStep("password");
       return;
     }
-    setError("Could not generate the report. Try again.");
+    console.error("Download API error:", result.error);
+    setError(`Could not generate the report: ${result.error}. Try again.`);
     setStep("disclosure");
   };
 
@@ -288,7 +290,9 @@ export default function EmailReportView({
               <button
                 onClick={() => {
                   setExportMethod("download");
-                  startFlow();
+                  setError(null);
+                  setNotice(null);
+                  void doDownload();
                 }}
                 className="w-full cursor-pointer rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 flex items-center justify-center gap-2"
               >
@@ -299,7 +303,13 @@ export default function EmailReportView({
               <button
                 onClick={() => {
                   setExportMethod("email");
-                  startFlow();
+                  setError(null);
+                  setNotice(null);
+                  if (verified) {
+                    void doSend();
+                  } else {
+                    setStep("email");
+                  }
                 }}
                 className="w-full cursor-pointer rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[rgba(255,255,255,0.06)] flex items-center justify-center gap-2"
                 style={{ border: "1px solid #2a2a2a" }}
