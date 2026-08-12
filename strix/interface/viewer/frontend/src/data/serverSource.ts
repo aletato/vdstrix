@@ -149,6 +149,10 @@ export type SendReportResult =
   | { ok: true; password: string; filename: string }
   | { ok: false; error: string };
 
+export type DownloadReportResult =
+  | { ok: true; password: string; filename: string; pdf: string }
+  | { ok: false; error: string };
+
 async function postJson(
   path: string,
   body: Record<string, unknown>
@@ -245,6 +249,19 @@ export async function sendReport(runName?: string | null): Promise<SendReportRes
       ok: true,
       password: String(data.password ?? ""),
       filename: String(data.filename ?? "strix-report.pdf"),
+    };
+  }
+  return { ok: false, error: String(data.error ?? "unavailable") };
+}
+
+export async function downloadReport(runName?: string | null): Promise<DownloadReportResult> {
+  const { ok, data } = await postJson("/api/report/download", runName ? { run: runName } : {});
+  if (ok && data.ok === true) {
+    return {
+      ok: true,
+      password: String(data.password ?? ""),
+      filename: String(data.filename ?? "strix-report.pdf"),
+      pdf: String(data.pdf ?? ""),
     };
   }
   return { ok: false, error: String(data.error ?? "unavailable") };

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Mail, ShieldCheck, Lock, Copy, Check, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
+import { Mail, ShieldCheck, Lock, Copy, Check, Loader2, AlertCircle, ArrowLeft, Download } from "lucide-react";
 import {
   otpStart,
   otpVerify,
   sendReport,
+  downloadReport,
   type AuthStatus,
 } from "@/data/serverSource";
 import { track } from "@/lib/cta";
@@ -14,9 +15,12 @@ import { track } from "@/lib/cta";
  * one-time password panel; verify mode just confirms the email and returns to
  * the caller. The page unmounts when you navigate away, so state resets each
  * time it is opened.
+ *
+ * Now supports both email and direct download modes for completed reports.
  */
 
-type Step = "disclosure" | "email" | "code" | "sending" | "password";
+type Step = "disclosure" | "email" | "code" | "sending" | "downloading" | "password";
+type ExportMethod = "email" | "download" | null;
 
 interface EmailReportViewProps {
   activeRun: string | null;
@@ -81,7 +85,46 @@ export default function EmailReportView({
   const [filename, setFilename] = useState("");
   const [copied, setCopied] = useState(false);
   const [sentTo, setSentTo] = useState("");
+  const [exportMethod, setExportMethod] = useState<ExportMethod>(null);
   const autoSentRef = useRef(false);
+
+  const doDownload = async () => {
+    setStep("downloading");
+    setError(null);
+    const result = await downloadReport(activeRun);
+    if (result.ok) {
+      track("report_downloaded");
+      setPassword(result.password);
+      setFilename(result.filename);
+
+      // Trigger browser download
+      try {
+        const binary = atob(result.pdf);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = result.filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        setError("Failed to download the PDF. Please try again.");
+        setStep("disclosure");
+        return;
+      }
+
+      setStep("password");
+      return;
+    }
+    setError("Could not generate the report. Try again.");
+    setStep("disclosure");
+  };
 
   const doSend = async () => {
     setStep("sending");
@@ -106,8 +149,13 @@ export default function EmailReportView({
   const startFlow = () => {
     setError(null);
     setNotice(null);
-    if (verified) void doSend();
-    else setStep("email");
+    if (exportMethod === "download") {
+      void doDownload();
+    } else if (verified) {
+      void doSend();
+    } else {
+      setStep("email");
+    }
   };
 
   // A verified user who skipped the disclosure (Overview CTA) sends on arrival.
@@ -225,7 +273,7 @@ export default function EmailReportView({
               <div className="flex items-start gap-2.5">
                 <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-400" aria-hidden="true" />
                 <p className="text-xs leading-relaxed text-[#aaa]">
-                  We email an <span className="text-white">encrypted PDF</span>. Nothing else leaves your machine.
+                  We generate an <span className="text-white">encrypted PDF</span> locally on your machine.
                 </p>
               </div>
               <div className="flex items-start gap-2.5">
@@ -235,13 +283,33 @@ export default function EmailReportView({
                 </p>
               </div>
             </div>
-            <button
-              onClick={startFlow}
-              className="w-full cursor-pointer rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-black transition-opacity hover:opacity-90"
-            >
-              Export report
-            </button>
-            {verified && auth?.email && (
+
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  setExportMethod("download");
+                  startFlow();
+                }}
+                className="w-full cursor-pointer rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 flex items-center justify-center gap-2"
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+                Download PDF
+              </button>
+
+              <button
+                onClick={() => {
+                  setExportMethod("email");
+                  startFlow();
+                }}
+                className="w-full cursor-pointer rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[rgba(255,255,255,0.06)] flex items-center justify-center gap-2"
+                style={{ border: "1px solid #2a2a2a" }}
+              >
+                <Mail className="h-4 w-4" aria-hidden="true" />
+                Email PDF to me
+              </button>
+            </div>
+
+            {verified && auth?.email && exportMethod === "email" && (
               <p className="text-center text-xs text-[#666]">Sending to {auth.email}</p>
             )}
           </div>
@@ -327,12 +395,22 @@ export default function EmailReportView({
           </div>
         )}
 
+        {step === "downloading" && (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-white" aria-hidden="true" />
+            <p className="text-sm text-[#aaa]">Generating encrypted PDF...</p>
+          </div>
+        )}
+
         {step === "password" && (
           <div className="space-y-4">
             <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
               <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-400" aria-hidden="true" />
               <p className="text-xs text-emerald-200">
-                Sent to {confirmationEmail}. Open the attached PDF with this password.
+                {exportMethod === "download"
+                  ? `Downloaded successfully. Open the PDF with this password.`
+                  : `Sent to ${confirmationEmail}. Open the attached PDF with this password.`
+                }
               </p>
             </div>
             <div>
